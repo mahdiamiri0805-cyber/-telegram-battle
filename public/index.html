@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Mini Battle</title>
+
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: white;
+      font-family: Arial;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    h2 {
+      margin: 10px;
+    }
+
+    #game {
+      background: #222;
+      border: 2px solid white;
+      max-width: 95vw;
+      max-height: 65vh;
+    }
+
+    #controls {
+      margin-top: 10px;
+    }
+
+    button {
+      width: 65px;
+      height: 55px;
+      margin: 4px;
+      font-size: 20px;
+      border-radius: 12px;
+      border: none;
+    }
+
+    #fire {
+      background: #b00;
+      color: white;
+      width: 120px;
+    }
+
+    #status {
+      margin: 10px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>🎮 Mini Battle</h2>
+
+<div id="status">
+  در حال اتصال...
+</div>
+
+<canvas
+  id="game"
+  width="900"
+  height="600">
+</canvas>
+
+<div id="controls">
+
+  <div>
+    <button onclick="move('up')">⬆️</button>
+  </div>
+
+  <div>
+    <button onclick="move('left')">⬅️</button>
+    <button onclick="move('down')">⬇️</button>
+    <button onclick="move('right')">➡️</button>
+  </div>
+
+  <div>
+    <button id="fire" onclick="shoot()">
+      🔫 شلیک
+    </button>
+  </div>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const statusText =
+  document.getElementById("status");
+
+const params =
+  new URLSearchParams(location.search);
+
+const room =
+  params.get("room");
+
+const name =
+  params.get("name") || "Player";
+
+let myId = null;
+let players = [];
+
+const protocol =
+  location.protocol === "https:"
+    ? "wss:"
+    : "ws:";
+
+const ws =
+  new WebSocket(
+    protocol + "//" + location.host
+  );
+
+ws.onopen = () => {
+
+  statusText.innerText =
+    "✅ وصل شدیم؛ منتظر بازیکن‌ها...";
+
+  ws.send(JSON.stringify({
+    type: "join",
+    room: room,
+    name: name
+  }));
+};
+
+ws.onmessage = event => {
+
+  const data =
+    JSON.parse(event.data);
+
+  if (data.type === "joined") {
+
+    myId = data.id;
+
+  }
+
+  if (data.type === "state") {
+
+    players = data.players;
+
+    if (!data.started) {
+
+      statusText.innerText =
+        "👥 منتظر حداقل یک بازیکن دیگر...";
+
+    } else if (data.winner) {
+
+      statusText.innerText =
+        "🏆 برنده: " + data.winner;
+
+    } else {
+
+      statusText.innerText =
+        "🔥 بازی شروع شد!";
+    }
+
+    draw();
+  }
+
+  if (data.type === "error") {
+
+    statusText.innerText =
+      "❌ " + data.message;
+  }
+};
+
+function move(direction) {
+
+  if (ws.readyState !== WebSocket.OPEN)
+    return;
+
+  ws.send(JSON.stringify({
+    type: "move",
+    direction: direction
+  }));
+}
+
+function shoot() {
+
+  const me =
+    players.find(p => p.id === myId);
+
+  if (!me) return;
+
+  let closest = null;
+  let closestDistance = Infinity;
+
+  for (const p of players) {
+
+    if (p.id === myId || p.hp <= 0)
+      continue;
+
+    const dx = me.x - p.x;
+    const dy = me.y - p.y;
+
+    const distance =
+      Math.sqrt(dx * dx + dy * dy);
+
+    if (
+      distance < closestDistance &&
+      distance <= 180
+    ) {
+
+      closest = p;
+      closestDistance = distance;
+    }
+  }
+
+  if (!closest) {
+
+    statusText.innerText =
+      "❌ دشمنی در محدوده شلیک نیست.";
+
+    return;
+  }
+
+  ws.send(JSON.stringify({
+    type: "shoot",
+    targetId: closest.id
+  }));
+}
+
+function draw() {
+
+  ctx.clearRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  ctx.fillStyle = "#222";
+
+  ctx.fillRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  // Grid
+
+  ctx.strokeStyle = "#333";
+
+  for (let x = 0; x < 900; x += 50) {
+
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 600);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y < 600; y += 50) {
+
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(900, y);
+    ctx.stroke();
+  }
+
+  // Players
+
+  for (const p of players) {
+
+    ctx.beginPath();
+
+    ctx.arc(
+      p.x,
+      p.y,
+      22,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.fillStyle =
+      p.id === myId
+        ? "lime"
+        : "red";
+
+    ctx.fill();
+
+    // HP
+
+    ctx.fillStyle = "white";
+
+    ctx.fillRect(
+      p.x - 25,
+      p.y - 38,
+      50,
+      6
+    );
+
+    ctx.fillStyle = "green";
+
+    ctx.fillRect(
+      p.x - 25,
+      p.y - 38,
+      50 * (p.hp / 100),
+      6
+    );
+
+    ctx.fillStyle = "white";
+
+    ctx.font = "14px Arial";
+
+    ctx.textAlign = "center";
+
+    ctx.fillText(
+      p.name,
+      p.x,
+      p.y + 42
+    );
+  }
+}
+
+draw();
+
+</script>
+
+</body>
+</html>
